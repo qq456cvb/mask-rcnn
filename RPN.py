@@ -14,7 +14,7 @@ def forward(feature_maps):
     for i, feature_level in enumerate(feature_maps):
         features = slim.conv2d(inputs=feature_level, num_outputs=512, kernel_size=3, reuse=(None if i == 0 else True), scope='rpn_feature_extract')
         # features = tf.Print(features, [tf.shape(features)])
-        rpn_anchor_logits = slim.conv2d(inputs=features, num_outputs=2 * config.ANCHORS_PER_PIXEL, kernel_size=1)
+        rpn_anchor_logits = slim.conv2d(inputs=features, num_outputs=2 * config.ANCHORS_PER_PIXEL, kernel_size=1, activation_fn=None)
 
         # reshape for softmax
         rpn_anchor_logits = tf.reshape(rpn_anchor_logits,
@@ -24,7 +24,7 @@ def forward(feature_maps):
         rpn_anchor_probs = tf.nn.softmax(rpn_anchor_logits)
         all_rpn_anchor_probs.append(tf.reshape(rpn_anchor_probs, [batch_size, -1, 2]))
 
-        rpn_bbox_delta = slim.conv2d(inputs=features, num_outputs=4 * config.ANCHORS_PER_PIXEL, kernel_size=1)
+        rpn_bbox_delta = slim.conv2d(inputs=features, num_outputs=4 * config.ANCHORS_PER_PIXEL, kernel_size=1, activation_fn=None)
         all_rpn_bbox_delta.append(tf.reshape(rpn_bbox_delta, [batch_size, -1, 4]))
 
     return tf.concat(all_rpn_anchor_logits, axis=1), tf.concat(all_rpn_anchor_probs, axis=1), tf.concat(all_rpn_bbox_delta, axis=1)

@@ -25,18 +25,22 @@ def rpn_model_fn(features, labels, mode):
     all_anchors = tf.convert_to_tensor(utils.generate_anchors(format=utils.BBOX_FORMAT.YXYX), dtype=tf.float32)
     all_anchors = tf.tile(tf.expand_dims(all_anchors, 0), [tf.shape(pred_rpn_anchor_logits)[0], 1, 1])
     proposals = tf.map_fn(RPN.inference, (pred_rpn_anchor_probs, pred_rpn_anchor_deltas, all_anchors), dtype=tf.float32)
-    # get proposals in XYWH format
+    # get proposals in YXYX format
     proposals = tf.identity(proposals, name='proposals')
-    rois, target_class, target_mask = tf.map_fn(utils.generate_mask_rcnn_x_y_tf, (proposals, labels['bboxs'],
-                                                                                                tf.cast(tf.zeros([tf.shape(proposals)[0], tf.shape(labels['bboxs'])[1]]), tf.int32),
+    rois, target_class, target_deltas, target_mask = tf.map_fn(utils.generate_mask_rcnn_x_y_tf, (proposals, labels['bboxs'],
+                                                                                                tf.cast(tf.ones([tf.shape(proposals)[0], tf.shape(labels['bboxs'])[1]]), tf.int32),
                                                                                                 tf.zeros([tf.shape(proposals)[0], tf.shape(labels['bboxs'])[1], config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE])),
-                                                              (tf.float32, tf.float32, tf.float32))
-    rois = tf.Print(rois, [tf.shape(rois), tf.shape(target_class), tf.shape(target_mask)])
+                                                              dtype=(tf.float32, tf.int32, tf.float32, tf.float32))
+    rois = tf.Print(rois, [tf.shape(rois), tf.shape(target_class), tf.shape(target_deltas), tf.shape(target_mask)])
     mrcnn_cls_bbox_in = RoiAlign.forward(rois, feature_maps[:-1], config.CLS_BBOX_ROI_POOL_SIZE)
     mrcnn_mask_in = RoiAlign.forward(rois, feature_maps[:-1], config.MASK_ROI_POOL_SIZE)
-    mrcnn_mask_out = rcnn_head.forward_mask(mrcnn_mask_in)
+    mrcnn_mask_out_logits, _ = rcnn_head.forward_mask(mrcnn_mask_in)
+    mrcnn_cls_logits, _, mrcnn_deltas = rcnn_head.forward_cls_bbox(mrcnn_cls_bbox_in)
+    cls_loss, bbox_loss, mask_loss = tf.map_fn(rcnn_head.mrcnn_loss,
+                           (mrcnn_cls_logits, mrcnn_deltas, mrcnn_mask_out_logits, target_class, target_deltas, target_mask, rois),
+                           dtype=(tf.float32, tf.float32, tf.float32))
 
-    return proposals, rois, target_class, target_mask, mrcnn_cls_bbox_in, mrcnn_mask_out
+    return proposals, rois, target_class, target_mask, mrcnn_cls_bbox_in, mrcnn_deltas, cls_loss, bbox_loss, mask_loss
 
     # global_step = tf.train.get_global_step()
     # if mode == tf.estimator.ModeKeys.TRAIN:
@@ -95,7 +99,7 @@ if __name__ == '__main__':
     output = rpn_model_fn(inputs[0], inputs[1], 0)
     with tf.train.MonitoredSession() as sess:
         out = sess.run(output)
-        proposals = out[-1][0]
+        proposals = out[0][0]
         print(proposals.shape)
 
 

@@ -47,17 +47,17 @@ def inference(packed_values):
     # since on GPU, negative index will fill tensor with zero
     post_nms_bbox = tf.gather(best_k_anchor_bbox, post_nms_idx_in_best_k, axis=0)
     # return bbox in un-normalized YXYX format
-    # TODO: clip to windows size
+    post_nms_bbox = tf.maximum(tf.minimum(post_nms_bbox, config.IMG_SIZE_TRAIN - 1), 0)
     return post_nms_bbox
 
 
 def rpn_loss(packed_values):
     pred_rpn_anchor_logits, pred_rpn_anchor_deltas, target_rpn_anchor_labels, target_rpn_anchor_deltas, mask, positive_mask = packed_values
     class_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=target_rpn_anchor_labels,
-                                                            logits=tf.gather(pred_rpn_anchor_logits, mask))
+                                                            logits=tf.gather(pred_rpn_anchor_logits, mask), name='rpn_class_loss')
     bbox_abs_loss = tf.abs(target_rpn_anchor_deltas - tf.gather(pred_rpn_anchor_deltas, positive_mask)) - 0.5
     bbox_l2_loss = 0.5 * tf.square(bbox_abs_loss)
-    bbox_loss = tf.where(tf.greater(bbox_abs_loss, 0.5), bbox_abs_loss, bbox_l2_loss)
+    bbox_loss = tf.where(tf.greater(bbox_abs_loss, 0.5), bbox_abs_loss, bbox_l2_loss, name='rpn_bbox_loss')
     return tf.reduce_sum(class_loss), tf.reduce_sum(bbox_loss)
 
 

@@ -25,7 +25,19 @@ def apply_delta_tf(anchors, deltas):
     x1 = w * deltas[:, 0] + anchors[:, 1]
     y2 = y1 + h * tf.exp(deltas[:, 3])
     x2 = x1 + w * tf.exp(deltas[:, 2])
-    return tf.transpose(tf.stack([y1, x1, y2, x2]))
+    return tf.stack([y1, x1, y2, x2], axis=1)
+
+
+# pred_bbox is in YXYX format
+# gt_bbox is in YXYX format
+def calculate_delta_tf(pred_bbox, gt_bbox):
+    w = pred_bbox[:, 3] - pred_bbox[:, 1]
+    h = pred_bbox[:, 2] - pred_bbox[:, 0]
+    dx = (gt_bbox[:, 1] - pred_bbox[:, 1]) / w
+    dy = (gt_bbox[:, 0] - pred_bbox[:, 0]) / h
+    dw = tf.log((gt_bbox[:, 3] - gt_bbox[:, 1]) / w)
+    dh = tf.log((gt_bbox[:, 2] - gt_bbox[:, 0]) / h)
+    return tf.stack([dx, dy, dw, dh], axis=1)
 
 
 def log2_tf(x):
@@ -42,13 +54,13 @@ def convert_bbox_tf(bbox, src=BBOX_FORMAT.YXYX):
     if src == BBOX_FORMAT.YXYX:
         w = bbox[:, 3] - bbox[:, 1]
         h = bbox[:, 2] - bbox[:, 0]
-        return tf.transpose(tf.stack([bbox[:, 1], bbox[:, 0], w, h]))
+        return tf.stack([bbox[:, 1], bbox[:, 0], w, h], axis=1)
     elif src == BBOX_FORMAT.XYWH:
         y1 = bbox[:, 1]
         x1 = bbox[:, 0]
         y2 = y1 + bbox[:, 3]
         x2 = x1 + bbox[:, 2]
-        return tf.transpose(tf.stack([y1, x1, y2, x2]))
+        return tf.stack([y1, x1, y2, x2], axis=1)
     else:
         raise Exception('convert bbox for src not implemented')
 
@@ -189,9 +201,11 @@ def generate_rpn_deltas(anchors, bboxs, pos_mask, match):
 
 
 # proposal from rpn, feed to mask rcnn
+# proposal in YXYX format
+# bbox in XYWH format
+# bbox class should be fed by offset one since zero is for background
 def generate_mask_rcnn_x_y_tf(packed_value):
     proposals, bbox, bbox_cls, bbox_mask = packed_value
-    # proposal in XYWH format
     # proposal shape [P * 4]
     # remove zero values
     mask = tf.cast(tf.reduce_sum(tf.abs(proposals), axis=1), tf.bool)
@@ -203,12 +217,14 @@ def generate_mask_rcnn_x_y_tf(packed_value):
     # bbox mask shape [T * H * W]
     # overlaps shape [P * T]
     # bbox_cls_onehot = tf.one_hot(bbox_cls, depth=config.NUM_CLASSES)
-
-    overlaps = compute_overlaps_tf(proposals, bbox)
+    # proposals = convert_bbox_tf(tf.tile(tf.expand_dims(tf.constant([66.864, 665.936, 213.44,  47.28]), 0), [1000, 1]), src=BBOX_FORMAT.XYWH)
+    overlaps = compute_overlaps_tf(convert_bbox_tf(proposals, src=BBOX_FORMAT.YXYX), bbox)
+    bbox = convert_bbox_tf(bbox, src=BBOX_FORMAT.YXYX)
     max_overlaps = tf.reduce_max(overlaps, axis=1)
 
     # [Npos]
     positive_proposal_idx = tf.squeeze(tf.where(tf.greater(max_overlaps, 0.5)), axis=1)
+    positive_proposal_idx = tf.Print(positive_proposal_idx, [tf.shape(positive_proposal_idx)])
     # subsample according to 1:3 ratio
     target_positive_cnt = int(config.TRAIN_ROIS_PER_IMAGE - config.TRAIN_ROIS_PER_IMAGE / (1 + config.ROIS_POS2NEG_RATIO))
     positive_proposal_idx = tf.random_shuffle(positive_proposal_idx)[:target_positive_cnt]
@@ -222,27 +238,44 @@ def generate_mask_rcnn_x_y_tf(packed_value):
     # pick positive assignment idx
     positive_overlaps_bbox_idx = tf.gather(overlaps_bbox_idx, positive_proposal_idx)
     negative_overlaps_bbox_idx = tf.gather(overlaps_bbox_idx, negative_proposal_idx)
-    target_bbox_labels = tf.gather(bbox_cls, positive_overlaps_bbox_idx, axis=0)
-    target_bbox_mask = tf.gather(bbox_mask, positive_overlaps_bbox_idx, axis=0)
-    # fill negative class with label 0 and fill mask with all zeros
-    target_bbox_labels = tf.pad(target_bbox_labels,
-                                [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_labels)[0]]])
-    target_bbox_labels = tf.one_hot(target_bbox_labels, depth=config.NUM_CLASSES)
-    target_bbox_mask = tf.pad(target_bbox_mask,
-                              [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_mask)[0]], [0, 0], [0, 0]])
+    target_bbox_cls = tf.gather(bbox_cls, positive_overlaps_bbox_idx, axis=0)
+    # target_bbox_cls = tf.Print(target_bbox_cls, [tf.shape(target_bbox_cls)])
+    # fill negative class with label 0
+    target_bbox_cls = tf.pad(target_bbox_cls,
+                                [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_cls)[0]]])
+    # target_bbox_labels = tf.one_hot(target_bbox_labels, depth=config.NUM_CLASSES)
 
-    positive_rois = tf.gather(proposals, positive_proposal_idx, axis=0)
-    negative_rois = tf.gather(proposals, negative_proposal_idx, axis=0)
+    positive_proposals = tf.gather(proposals, positive_proposal_idx, axis=0)
+    positive_bbox = tf.gather(bbox, positive_overlaps_bbox_idx, axis=0)
+    negative_proposals = tf.gather(proposals, negative_proposal_idx, axis=0)
+    negative_bbox = tf.gather(bbox, negative_overlaps_bbox_idx, axis=0)
+    target_bbox_deltas = calculate_delta_tf(positive_proposals, positive_bbox)
+    target_bbox_deltas = tf.pad(target_bbox_deltas,
+                                [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_deltas)[0]], [0, 0]])
     if config.USE_GT_BBOX_IN_MASK_RCNN:
-        positive_rois = tf.gather(bbox, positive_overlaps_bbox_idx, axis=0)
-        negative_rois = tf.gather(bbox, negative_overlaps_bbox_idx, axis=0)
+        target_bbox_deltas = tf.zeros([config.TRAIN_ROIS_PER_IMAGE , 4])
+
+    positive_rois = positive_bbox if config.USE_GT_BBOX_IN_MASK_RCNN else positive_proposals
+    negative_rois = negative_bbox if config.USE_GT_BBOX_IN_MASK_RCNN else negative_proposals
 
     rois = tf.concat([positive_rois, negative_rois], axis=0)
     # if there are not enough proposals, just pad rois
     rois = tf.pad(rois, [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(rois)[0]], [0, 0]])
     # rois = tf.Print(rois, [tf.shape(rois)])
 
-    return rois, target_bbox_labels, target_bbox_mask
+    target_bbox_mask = tf.gather(bbox_mask, positive_overlaps_bbox_idx, axis=0)
+    y1 = (positive_proposals[:, 0] - positive_bbox[:, 0]) / config.MASK_OUTPUT_SHAPE
+    x1 = (positive_proposals[:, 1] - positive_bbox[:, 1]) / config.MASK_OUTPUT_SHAPE
+    y2 = (positive_proposals[:, 2] - positive_bbox[:, 0]) / config.MASK_OUTPUT_SHAPE
+    x2 = (positive_proposals[:, 3] - positive_bbox[:, 1]) / config.MASK_OUTPUT_SHAPE
+    target_bbox_mask = tf.squeeze(tf.image.crop_and_resize(tf.expand_dims(target_bbox_mask, -1), tf.stack([y1, x1, y2, x2], axis=1), tf.range(tf.shape(target_bbox_mask)[0]),
+                                                [config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE]), -1)
+
+    # fill mask with all zeros
+    target_bbox_mask = tf.pad(target_bbox_mask,
+                              [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_mask)[0]], [0, 0], [0, 0]])
+
+    return rois, target_bbox_cls, target_bbox_deltas, target_bbox_mask
 
 
 if __name__ == '__main__':

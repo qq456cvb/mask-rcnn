@@ -31,7 +31,9 @@ def data_generator():
         anns = coco.loadAnns(ann_ids)
         bboxs = [ann['bbox'] for ann in anns]
         bboxs = np.vstack(bboxs) * ratio
-        # print(bboxs.shape)
+
+        # bboxs = bboxs[0:1, :]
+        print(bboxs.shape)
         anchor_types, matches = utils.generate_anchor_types(all_anchors, bboxs)
         positive_mask, mask = utils.get_mask(anchor_types)
         labels = utils.generate_rpn_labels(anchor_types, mask)

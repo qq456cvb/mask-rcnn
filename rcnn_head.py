@@ -49,7 +49,7 @@ def mrcnn_loss(packed_values):
 
     # class loss is for all as negative rois should have class index 0
     gt_cls_onehot = tf.one_hot(gt_cls, config.NUM_CLASSES)
-    gt_cls_onehot = tf.Print(gt_cls_onehot, [tf.shape(gt_cls_onehot)])
+    # gt_cls_onehot = tf.Print(gt_cls_onehot, [tf.shape(gt_cls_onehot)])
     cls_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=gt_cls_onehot, logits=pred_cls_logits, name='mrcnn_class_loss')
 
     # delta loss is only for positive rois

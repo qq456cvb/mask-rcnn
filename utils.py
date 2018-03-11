@@ -2,6 +2,7 @@ import numpy as np
 import config
 import cv2
 import tensorflow as tf
+from pycocotools import mask as maskUtils
 
 
 class BBOX_FORMAT:
@@ -205,7 +206,14 @@ def generate_rpn_deltas(anchors, bboxs, pos_mask, match):
 # bbox in XYWH format
 # bbox class should be fed by offset one since zero is for background
 def generate_mask_rcnn_x_y_tf(packed_value):
-    proposals, bbox, bbox_cls, bbox_mask = packed_value
+    proposals, bbox, bbox_cls, bbox_mask, valid_label_range = packed_value
+
+    # trim to valid_label_range
+    valid_label_range = tf.Print(valid_label_range, [valid_label_range])
+    bbox = bbox[:valid_label_range, :]
+    bbox_cls = bbox_cls[:valid_label_range]
+    bbox_mask = bbox_mask[:valid_label_range, :, :]
+
     # proposal shape [P * 4]
     # remove zero values
     mask = tf.cast(tf.reduce_sum(tf.abs(proposals), axis=1), tf.bool)
@@ -219,12 +227,12 @@ def generate_mask_rcnn_x_y_tf(packed_value):
     # bbox_cls_onehot = tf.one_hot(bbox_cls, depth=config.NUM_CLASSES)
     # proposals = convert_bbox_tf(tf.tile(tf.expand_dims(tf.constant([66.864, 665.936, 213.44,  47.28]), 0), [1000, 1]), src=BBOX_FORMAT.XYWH)
     overlaps = compute_overlaps_tf(convert_bbox_tf(proposals, src=BBOX_FORMAT.YXYX), bbox)
-    bbox = convert_bbox_tf(bbox, src=BBOX_FORMAT.YXYX)
+    bbox = convert_bbox_tf(bbox, src=BBOX_FORMAT.XYWH)
     max_overlaps = tf.reduce_max(overlaps, axis=1)
 
     # [Npos]
     positive_proposal_idx = tf.squeeze(tf.where(tf.greater(max_overlaps, 0.5)), axis=1)
-    positive_proposal_idx = tf.Print(positive_proposal_idx, [tf.shape(positive_proposal_idx)])
+    # positive_proposal_idx = tf.Print(positive_proposal_idx, [tf.shape(positive_proposal_idx)])
     # subsample according to 1:3 ratio
     target_positive_cnt = int(config.TRAIN_ROIS_PER_IMAGE - config.TRAIN_ROIS_PER_IMAGE / (1 + config.ROIS_POS2NEG_RATIO))
     positive_proposal_idx = tf.random_shuffle(positive_proposal_idx)[:target_positive_cnt]
@@ -276,6 +284,37 @@ def generate_mask_rcnn_x_y_tf(packed_value):
                               [[0, config.TRAIN_ROIS_PER_IMAGE - tf.shape(target_bbox_mask)[0]], [0, 0], [0, 0]])
 
     return rois, target_bbox_cls, target_bbox_deltas, target_bbox_mask
+
+
+# adapted from https://github.com/matterport/Mask_RCNN/blob/master/coco.py
+def annToRLE(ann, height, width):
+    """
+    Convert annotation which can be polygons, uncompressed RLE to RLE.
+    :return: binary mask (numpy 2D array)
+    """
+    segm = ann['segmentation']
+    if isinstance(segm, list):
+        # polygon -- a single object might consist of multiple parts
+        # we merge all parts into one mask rle code
+        rles = maskUtils.frPyObjects(segm, height, width)
+        rle = maskUtils.merge(rles)
+    elif isinstance(segm['counts'], list):
+        # uncompressed RLE
+        rle = maskUtils.frPyObjects(segm, height, width)
+    else:
+        # rle
+        rle = ann['segmentation']
+    return rle
+
+
+def annToMask(ann, height, width):
+    """
+    Convert annotation which can be polygons, uncompressed RLE, or RLE to binary mask.
+    :return: binary mask (numpy 2D array)
+    """
+    rle = annToRLE(ann, height, width)
+    m = maskUtils.decode(rle)
+    return m
 
 
 if __name__ == '__main__':

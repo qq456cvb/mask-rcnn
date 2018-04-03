@@ -25,7 +25,7 @@ def data_generator():
         img_info = coco.loadImgs(img_ids[rand])[0]
         img = scipy.ndimage.imread(config.DATASET_DIR + '\\' + config.DATASET_TYPE + '\\' + img_info['file_name'])
         img = img.astype(np.float32) / 255.
-        ratio, img = utils.resize_keep_ratio(img, (1024, 1024))
+        ratio, img, offset = utils.resize_keep_ratio(img, (1024, 1024))
 
         ann_ids = coco.getAnnIds(imgIds=img_info['id'], iscrowd=0)
         anns = coco.loadAnns(ann_ids)
@@ -40,6 +40,7 @@ def data_generator():
         masks = np.array([cv2.resize(mask[bboxs_ind[i, 1]:bboxs_ind[i, 1] + bboxs_ind[i, 3], bboxs_ind[i, 0]:bboxs_ind[i, 0] + bboxs_ind[i, 2]], (config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE))
                           for i, mask in enumerate(masks)])
         bboxs = bboxs * ratio
+        bboxs[:, :2] += offset
         bboxs_rpn = bboxs
 
         valid_label_range = 0

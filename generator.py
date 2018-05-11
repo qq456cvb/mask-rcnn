@@ -19,7 +19,7 @@ def data_generator():
     all_anchors = utils.generate_anchors()
     while True:
         rand = np.random.randint(0, len(img_ids))
-        rand = 3118
+        # rand = 3118
         # print(rand)
 
         img_info = coco.loadImgs(img_ids[rand])[0]
@@ -61,6 +61,10 @@ def data_generator():
         rpn_positive_mask, rpn_mask = utils.get_mask(anchor_types)
         rpn_labels = utils.generate_rpn_labels(anchor_types, rpn_mask)
         rpn_deltas = utils.generate_rpn_deltas(all_anchors, bboxs_rpn, rpn_positive_mask, matches)
+        rpn_positive_range = rpn_deltas.shape[0]
+        # do some padding
+        rpn_deltas = np.pad(rpn_deltas, ((0, config.RPN_ANCHORS_TRAIN_PER_IMAGE - rpn_positive_range), (0, 0)), 'constant')
+        rpn_positive_mask = np.pad(rpn_positive_mask, (0, config.RPN_ANCHORS_TRAIN_PER_IMAGE - rpn_positive_range), 'constant', constant_values=-1)
 
         if config.DEBUG:
             fig = plt.figure()
@@ -89,4 +93,5 @@ def data_generator():
                 )
             plt.show()
         # we feed precomputed rpn masks on multi-threaded cpu
-        yield img, bboxs, rpn_labels, rpn_deltas, rpn_mask, rpn_positive_mask, cls, masks, valid_label_range
+        print()
+        yield img, bboxs, rpn_labels, rpn_deltas, rpn_mask, rpn_positive_range, rpn_positive_mask, cls, masks, valid_label_range

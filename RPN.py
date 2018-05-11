@@ -52,10 +52,10 @@ def inference(packed_values):
 
 
 def rpn_loss(packed_values):
-    pred_rpn_anchor_logits, pred_rpn_anchor_deltas, target_rpn_anchor_labels, target_rpn_anchor_deltas, mask, positive_mask = packed_values
+    pred_rpn_anchor_logits, pred_rpn_anchor_deltas, target_rpn_anchor_labels, target_rpn_anchor_deltas, mask, positive_range, positive_mask = packed_values
     class_loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=target_rpn_anchor_labels,
                                                             logits=tf.gather(pred_rpn_anchor_logits, mask), name='rpn_class_loss')
-    bbox_abs_loss = tf.abs(target_rpn_anchor_deltas - tf.gather(pred_rpn_anchor_deltas, positive_mask)) - 0.5
+    bbox_abs_loss = tf.abs(target_rpn_anchor_deltas[:positive_range, :] - tf.gather(pred_rpn_anchor_deltas, tf.gather_nd(positive_mask, tf.where(tf.not_equal(positive_mask, -1))))) - 0.5
     bbox_l2_loss = 0.5 * tf.square(bbox_abs_loss)
     bbox_loss = tf.where(tf.greater(bbox_abs_loss, 0.5), bbox_abs_loss, bbox_l2_loss, name='rpn_bbox_loss')
     return tf.reduce_sum(class_loss), tf.reduce_sum(bbox_loss)

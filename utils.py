@@ -149,8 +149,8 @@ def resize_keep_ratio(img, target_size):
     img = cv2.resize(img, (new_size[1], new_size[0]))
 
     delta = target_size - np.array(new_size)
-    top, bottom = delta[0] // 2, delta[0] // 2
-    left, right = delta[1] // 2, delta[1] // 2
+    top, bottom = delta[0] // 2, (delta[0] // 2) if (delta[0] & 1 == 0) else (delta[0] // 2 + 1)
+    left, right = delta[1] // 2, (delta[1] // 2) if (delta[1] & 1 == 0) else (delta[1] // 2 + 1)
 
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
     return ratio, img, np.array([left, top])

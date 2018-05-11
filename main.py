@@ -16,7 +16,7 @@ import itertools
 def rpn_model_fn(features, labels, mode):
     feature_maps = ResNet_w_FPN.forward(features['img'])
     pred_rpn_anchor_logits, pred_rpn_anchor_probs, pred_rpn_anchor_deltas = RPN.forward(feature_maps)
-    class_loss, bbox_loss = tf.map_fn(RPN.rpn_loss, (pred_rpn_anchor_logits, pred_rpn_anchor_deltas, labels['rpn_labels'], labels['rpn_deltas'], labels['rpn_mask'], labels['rpn_positive_mask']), dtype=(tf.float32, tf.float32))
+    class_loss, bbox_loss = tf.map_fn(RPN.rpn_loss, (pred_rpn_anchor_logits, pred_rpn_anchor_deltas, labels['rpn_labels'], labels['rpn_deltas'], labels['rpn_mask'], labels['rpn_positive_range'], labels['rpn_positive_mask']), dtype=(tf.float32, tf.float32))
     class_loss = tf.reduce_sum(class_loss)
     # shape = tf.shape(bbox_loss, name='shape')
     bbox_loss = tf.reduce_sum(bbox_loss)
@@ -41,24 +41,25 @@ def rpn_model_fn(features, labels, mode):
                            (mrcnn_cls_logits, mrcnn_deltas, mrcnn_mask_out_logits, target_class, target_deltas, target_mask, rois),
                            dtype=(tf.float32, tf.float32, tf.float32))
 
-    return proposals, rois, target_class, target_mask, mrcnn_cls_bbox_in, mrcnn_deltas, cls_loss, bbox_loss, mask_loss
+    # return proposals, rois, target_class, target_mask, mrcnn_cls_bbox_in, mrcnn_deltas, cls_loss, bbox_loss, mask_loss
 
-    # global_step = tf.train.get_global_step()
-    # if mode == tf.estimator.ModeKeys.TRAIN:
-    #     optimizer = tf.train.AdamOptimizer()
-    #     train_op = optimizer.minimize(loss, global_step=global_step)
-    #     return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+    global_step = tf.train.get_global_step()
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        optimizer = tf.train.AdamOptimizer()
+        train_op = optimizer.minimize(loss, global_step=global_step)
+        return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
 
 def train_input_fn():
     gen = generator.data_generator
-    dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.float32, tf.float32, tf.float32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32),
+    dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.float32, tf.float32, tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32),
                                              (
                                                  tf.TensorShape([None, None, 3]),
                                                  tf.TensorShape([None, 4]),
                                                  tf.TensorShape([config.RPN_ANCHORS_TRAIN_PER_IMAGE, 2]),
                                                  tf.TensorShape([None, 4]),
                                                  tf.TensorShape([None]),
+                                                 tf.TensorShape([]),
                                                  tf.TensorShape([None]),
                                                  tf.TensorShape([None]),
                                                  tf.TensorShape([None, config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE]),
@@ -74,10 +75,11 @@ def train_input_fn():
         'rpn_labels': next_batch[2],
         'rpn_deltas': next_batch[3],
         'rpn_mask': next_batch[4],
-        'rpn_positive_mask': next_batch[5],
-        'cls': next_batch[6],
-        'masks': next_batch[7],
-        'valid_label_ranges': next_batch[8]
+        'rpn_positive_range': next_batch[5],
+        'rpn_positive_mask': next_batch[6],
+        'cls': next_batch[7],
+        'masks': next_batch[8],
+        'valid_label_ranges': next_batch[9]
     }
 
 
@@ -88,25 +90,21 @@ if __name__ == '__main__':
     # mask_in = tf.placeholder_v2(tf.int32, [None, config.RPN_ANCHORS_TRAIN_PER_IMAGE])
     # utils.generate_anchors()
 
-    # rpn_estimator = tf.estimator.Estimator(
-    #     model_fn=rpn_model_fn,
-    #     model_dir='models/rpn_model'
-    # )
-    # logging_hook = tf.train.LoggingTensorHook(
-    #     tensors={
-    #         "loss": "loss",
-    #         "shape": "shape",
-    #         "shape1": "shape",
-    #         "shape2": "shape",
-    #         "shape3": "shape",
-    #     }, every_n_iter=2)
-    # rpn_estimator.train(input_fn=train_input_fn, steps=4, hooks=[logging_hook])
-    inputs = train_input_fn()
-    output = rpn_model_fn(inputs[0], inputs[1], 0)
-    with tf.train.MonitoredSession() as sess:
-        out = sess.run(output)
-        proposals = out[0][0]
-        print(proposals.shape)
+    rpn_estimator = tf.estimator.Estimator(
+        model_fn=rpn_model_fn,
+        model_dir='models/rpn_model'
+    )
+    logging_hook = tf.train.LoggingTensorHook(
+        tensors={
+            "loss": "loss"
+        }, every_n_iter=2)
+    rpn_estimator.train(input_fn=train_input_fn, steps=4, hooks=[logging_hook])
+    # inputs = train_input_fn()
+    # output = rpn_model_fn(inputs[0], inputs[1], 0)
+    # with tf.train.MonitoredSession() as sess:
+    #     out = sess.run(output)
+    #     proposals = out[0][0]
+    #     print(proposals.shape)
 
     # dataset = tf.data.Dataset.from_generator(gen, (tf.float32, tf.float32, tf.float32, tf.int32, tf.int32),
     #                                          (

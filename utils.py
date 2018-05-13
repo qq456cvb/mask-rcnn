@@ -157,6 +157,8 @@ def resize_keep_ratio(img, target_size):
 
 
 def generate_anchor_types(anchors, bboxs):
+    if bboxs.size == 0:
+        return -np.ones([anchors.shape[0]], dtype=np.int32), dict()
     overlaps = compute_overlaps(anchors, bboxs)
 
     anchor_types = np.zeros([overlaps.shape[0]], dtype=np.int32)

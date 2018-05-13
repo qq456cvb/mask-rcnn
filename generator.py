@@ -19,7 +19,6 @@ def data_generator():
     all_anchors = utils.generate_anchors()
     while True:
         rand = np.random.randint(0, len(img_ids))
-        # rand = 3118
         # print(rand)
 
         img_info = coco.loadImgs(img_ids[rand])[0]
@@ -27,18 +26,29 @@ def data_generator():
         img = img.astype(np.float32) / 255.
         ratio, img, offset = utils.resize_keep_ratio(img, (1024, 1024))
 
+        # convert gray image to rgb
+        if len(img.shape) == 2:
+            img = np.repeat(img[:, :, None], 3, axis=2)
+
         ann_ids = coco.getAnnIds(imgIds=img_info['id'], iscrowd=0)
         anns = coco.loadAnns(ann_ids)
         bboxs = [ann['bbox'] for ann in anns]
-        bboxs = np.vstack(bboxs)
+        masks = np.array([utils.annToMask(ann, img_info['height'], img_info['width']) for ann in anns])
+        if len(bboxs) == 0:
+            if config.SKIP_NO_BBOX_IMAGES:
+                continue
+            bboxs = np.zeros([0, 4])
+        else:
+            bboxs = np.vstack(bboxs)
         # OFFSET one for backgroound
         cls = np.array([ann['category_id'] + 1 for ann in anns])
-        masks = np.array([utils.annToMask(ann, img_info['height'], img_info['width']) for ann in anns])
 
         # resize masks to desired shape
         bboxs_ind = bboxs.astype(np.int)
         masks = np.array([cv2.resize(mask[bboxs_ind[i, 1]:bboxs_ind[i, 1] + bboxs_ind[i, 3], bboxs_ind[i, 0]:bboxs_ind[i, 0] + bboxs_ind[i, 2]], (config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE))
                           for i, mask in enumerate(masks)])
+        if bboxs.shape[0] == 0:
+            masks = np.zeros([0, config.MASK_OUTPUT_SHAPE, config.MASK_OUTPUT_SHAPE])
         bboxs = bboxs * ratio
         bboxs[:, :2] += offset
         bboxs_rpn = bboxs
@@ -93,5 +103,9 @@ def data_generator():
                 )
             plt.show()
         # we feed precomputed rpn masks on multi-threaded cpu
-        print()
         yield img, bboxs, rpn_labels, rpn_deltas, rpn_mask, rpn_positive_range, rpn_positive_mask, cls, masks, valid_label_range
+
+
+if __name__ == '__main__':
+    gen = data_generator()
+    next(gen)

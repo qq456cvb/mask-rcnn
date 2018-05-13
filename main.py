@@ -98,7 +98,7 @@ if __name__ == '__main__':
         tensors={
             "loss": "loss"
         }, every_n_iter=2)
-    rpn_estimator.train(input_fn=train_input_fn, steps=4, hooks=[logging_hook])
+    rpn_estimator.train(input_fn=train_input_fn, steps=40, hooks=[logging_hook])
     # inputs = train_input_fn()
     # output = rpn_model_fn(inputs[0], inputs[1], 0)
     # with tf.train.MonitoredSession() as sess:

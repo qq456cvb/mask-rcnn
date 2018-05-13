@@ -3,7 +3,7 @@ ANCHOR_SIZES = [32, 64, 128, 256, 512]
 ANCHORS_PER_PIXEL = len(ANCHOR_RATIOS)
 DATASET_DIR = 'D:\Mask_RCNN\COCO'
 DATASET_TYPE = 'val2017'
-DEBUG = False
+DEBUG = True
 
 # this should be consistent with defined FPN network
 FEATURE_STRIDES = [2**p for p in range(2, 7)]
@@ -24,3 +24,5 @@ MASK_ROI_POOL_SIZE = 14
 ROI_MAX_IN_POOL_SIZE = 2
 NUM_CLASSES = 81
 MAX_GT_TRAIN_INSTANCES = 100
+
+SKIP_NO_BBOX_IMAGES = False

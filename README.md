@@ -1,40 +1,47 @@
 # mask-rcnn
 
-<!-- README refined by Cursor -->
+A **tiny Mask R-CNN** ([He et al., ICCV 2017](https://openaccess.thecvf.com/content_iccv_2017/html/He_Mask_R-CNN_ICCV_2017_paper.html)) implemented from scratch in TensorFlow 1.x — the whole model in roughly 700 lines, spread over a handful of small, readable modules. The trick that keeps it compact is `tf.map_fn`: all per-image logic (RPN losses, proposal decoding, ROI target assignment, head losses) is written for a single image and mapped over the batch, instead of the heavily vectorized batch code found in larger implementations.
 
-tiny-mask-rcnn-tensorflow
+The goal is readability — a minimal reference for how the pieces of Mask R-CNN fit together, trained on COCO.
 
-## Overview
+## Code Map
 
-This repository contains Python code from an older research, course, or prototype project. The README has been refreshed to make the repository easier to scan while preserving the original notes below.
+| File | Role |
+| --- | --- |
+| `ResNet_w_FPN.py` | ResNet-style backbone with a Feature Pyramid Network producing multi-scale feature maps (strides 4–64). |
+| `RPN.py` | Region Proposal Network: objectness + anchor deltas per FPN level, loss, and proposal decoding with NMS. |
+| `RoiAlign.py` | ROI Align via `tf.image.crop_and_resize`, with ROIs routed to the right FPN level by their scale. |
+| `rcnn_head.py` | The two heads: classification + box refinement (FC) and the mask branch (4 convs + deconv, 28×28 per-class masks). |
+| `utils.py` | Anchor generation, anchor/GT matching, RPN and ROI target computation, COCO mask decoding. |
+| `generator.py` | COCO data generator: loads images and annotations with `pycocotools`, resizes to 1024×1024 keeping aspect ratio, and precomputes RPN targets on the CPU. |
+| `main.py` | Wires everything into a `tf.estimator.Estimator` training loop. |
+| `config.py` | All hyperparameters (anchor sizes/ratios, ROI counts, pool sizes, dataset path). |
 
-## Repository Contents
+## Run
 
-- Top-level source files and project assets.
+Requires TensorFlow 1.x, `pycocotools`, OpenCV, SciPy and matplotlib, plus a copy of [COCO](https://cocodataset.org/) (images + instance annotations).
 
-## Setup
+1. Point `DATASET_DIR` / `DATASET_TYPE` in `config.py` at your COCO root and split (e.g. `val2017`).
+2. Set `DEBUG = False` in `config.py` (when `True`, the generator pops up a matplotlib window visualizing each image's GT boxes and matched anchors — handy for sanity-checking targets, not for training).
+3. Train:
 
-- This legacy repo does not pin a full environment. Start from the language/toolchain implied by the source files, then install missing packages as reported by the runtime.
+```bash
+python main.py
+```
 
-## Usage
-
-- `python main.py`
-
-## Data and Artifacts
-
-No new large artifact is stored in this repository. If a dataset or checkpoint is required, follow the links and notes in the original section below.
+Checkpoints and TensorBoard logs go to `models/rpn_model`. Note `main.py` runs a short demonstration schedule (`steps=40`); raise the `steps` argument for a real training run.
 
 ## Status
 
-This is a `Batch B` cleanup pass for a legacy repository. Commands may require dependency/version adjustments on a modern machine.
+This is an educational/prototype implementation: the training pipeline (RPN + heads, all five losses) is complete, but there is no standalone inference/evaluation script and no pretrained backbone loading — expect to tinker.
 
-## License
+## Citation
 
-See `LICENSE` for license details.
-
-## Original Notes
-
-# mask-rcnn
-tiny-mask-rcnn-tensorflow
-
-This is a tiny mask rcnn implemented by Tensorflow with only 700+ lines. Thanks to "tf.map_fn".
+```bibtex
+@inproceedings{he2017mask,
+  title={Mask R-CNN},
+  author={He, Kaiming and Gkioxari, Georgia and Doll{\'a}r, Piotr and Girshick, Ross},
+  booktitle={Proceedings of the IEEE International Conference on Computer Vision (ICCV)},
+  year={2017}
+}
+```
